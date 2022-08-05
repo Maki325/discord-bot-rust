@@ -1,6 +1,10 @@
 use std::env;
+use std::fs;
 use dotenv::dotenv;
 use std::time::Duration;
+use std::collections::HashMap;
+
+use serde::{Serialize, Deserialize};
 
 use serenity::async_trait;
 use serenity::prelude::*;
@@ -8,7 +12,8 @@ use serenity::framework::standard::macros::{command, group};
 use serenity::framework::standard::{StandardFramework, CommandResult};
 use serenity::model::gateway::Ready;
 use serenity::model::prelude::Message;
-use serenity::builder::{CreateActionRow, CreateSelectMenu, CreateSelectMenuOptions, CreateSelectMenuOption};
+use serenity::model::guild::{Emoji, Role};
+use serenity::builder::{CreateActionRow, CreateSelectMenu, CreateSelectMenuOption};
 use tracing::{info};
 // use tracing_subscriber::FmtSubscriber;
 
@@ -16,26 +21,82 @@ use tracing::{info};
 #[commands(ping)]
 struct General;
 
-struct Handler;
+struct Handler {
+    save_data: Container,
+}
 
 #[async_trait]
 impl EventHandler for Handler {
 
-    async fn ready(&self, _: Context, ready: Ready) {
+    async fn ready(&self, ctx: Context, ready: Ready) {
         // Log at the INFO level. This is a macro from the `tracing` crate.
         println!("{} is connected!", ready.user.name);
         info!("{} is connected!", ready.user.name);
+
+        for (k, v) in &self.save_data.messages {
+            println!("Key: {}", k);
+            println!("Value: {}", serde_json::to_string(&v).expect("Couldn't json the value!"));
+        }
+
+        for guild_info in ctx.http.get_guilds(None, None).await.expect("Get guilds error!") {
+            println!("Guild id: {}", guild_info.id);
+
+            let partial_guild = ctx.http.get_guild(guild_info.id.0).await.expect("Get guild error!");
+
+            let guild = Guild {
+                id: partial_guild.id.0,
+                emojis: partial_guild.emojis.values().cloned().collect::<Vec<Emoji>>(),
+                roles: partial_guild.roles.values().cloned().collect::<Vec<Role>>(),
+            };
+            
+            // TODO: Figure out how to use save_data, maybe as a reference
+            // Because self is NOT mutable sadly
+            &self.save_data.guilds.insert(guild.id.to_string(), Guild {
+                id: partial_guild.id.0,
+                emojis: partial_guild.emojis.values().cloned().collect::<Vec<Emoji>>(),
+                roles: partial_guild.roles.values().cloned().collect::<Vec<Role>>(),
+            });
+        }
     }
 
+}
+
+#[derive(Serialize, Deserialize)]
+struct Container {
+    guilds: HashMap<String, Guild>,
+    messages: HashMap<String, MessageActions>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Guild {
+    id: u64,
+    emojis: Vec<Emoji>,
+    roles: Vec<Role>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct MessageActions {
+    id: u64,
+    roles: Vec<EmojiRoleMapping>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct EmojiRoleMapping {
+    emoji: u64,
+    role: u64,
 }
 
 #[tokio::main]
 async fn main() {
     // tracing_subscriber::fmt::init();
+
     dotenv().ok();
     let framework = StandardFramework::new()
         .configure(|c| c.prefix("~")) // set the bot's prefix to "~"
         .group(&GENERAL_GROUP);
+
+    let json_data = fs::read_to_string("save_data.json").expect("Couldn't read the file!");
+    let container: Container = serde_json::from_str(&json_data).expect("Couldn't json the file!");
 
     // Login with a bot token from the environment
     let token = env::var("DISCORD_TOKEN").expect("token");
@@ -44,7 +105,7 @@ async fn main() {
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
     let mut client = Client::builder(token, intents)
-        .event_handler(Handler)
+        .event_handler(Handler {save_data: container})
         .framework(framework)
         .await
         .expect("Error creating client");

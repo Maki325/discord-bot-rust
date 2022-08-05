@@ -1,0 +1,13 @@
+{
+  "messages": {
+    "some_id": {
+      "id": 17574,
+      "roles": [
+        {"emoji": 0, "role": 2},
+        {"emoji": 4, "role": 5}
+      ]
+    }
+  },
+  "guilds": {}
+}
+
