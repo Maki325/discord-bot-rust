@@ -1,13 +1,1 @@
-{
-  "messages": {
-    "some_id": {
-      "id": 17574,
-      "roles": [
-        {"emoji": 0, "role": 2},
-        {"emoji": 4, "role": 5}
-      ]
-    }
-  },
-  "guilds": {}
-}
-
+{"path":"save_data.json","guilds":{"713809216405504060":{"id":713809216405504060,"emojis":[{"animated":false,"available":true,"id":"1005259969962196993","name":"unknown","managed":false,"require_colons":true,"roles":[],"user":null}],"roles":[{"id":"713809216405504060","guild_id":"713809216405504060","color":0,"hoist":false,"managed":false,"mentionable":false,"name":"@everyone","permissions":"1071698660929","position":0,"tags":{"bot_id":null,"integration_id":null},"icon":null,"unicode_emoji":null},{"id":"733029034639884420","guild_id":"713809216405504060","color":3066993,"hoist":false,"managed":false,"mentionable":false,"name":"Admin Bot","permissions":"6546771529","position":3,"tags":{"bot_id":null,"integration_id":null},"icon":null,"unicode_emoji":null},{"id":"733419208205008918","guild_id":"713809216405504060","color":0,"hoist":false,"managed":false,"mentionable":false,"name":"verify-MontenegroGamers-3702","permissions":"6442451968","position":2,"tags":{"bot_id":null,"integration_id":null},"icon":null,"unicode_emoji":null},{"id":"732533277620961330","guild_id":"713809216405504060","color":3447003,"hoist":false,"managed":false,"mentionable":false,"name":"Owner","permissions":"6546771521","position":4,"tags":{"bot_id":null,"integration_id":null},"icon":null,"unicode_emoji":null},{"id":"1004118628867784837","guild_id":"713809216405504060","color":0,"hoist":false,"managed":true,"mentionable":false,"name":"Maki325 Bot","permissions":"8","position":1,"tags":{"bot_id":"1004106704390197288","integration_id":null},"icon":null,"unicode_emoji":null},{"id":"811603336901296139","guild_id":"713809216405504060","color":0,"hoist":false,"managed":true,"mentionable":false,"name":"Proximity Chat","permissions":"4294967304","position":1,"tags":{"bot_id":"811603050916741150","integration_id":null},"icon":null,"unicode_emoji":null},{"id":"739501493639577653","guild_id":"713809216405504060","color":11342935,"hoist":false,"managed":false,"mentionable":false,"name":"Test","permissions":"6546771521","position":1,"tags":{"bot_id":null,"integration_id":null},"icon":null,"unicode_emoji":null}]}},"messages":{"1005279722009284608":{"id":1005279722009284608,"roles":[{"emoji":"😄","role":739501493639577653}]},"1005279953354494054":{"id":1005279953354494054,"roles":[{"emoji":"😄","role":739501493639577653}]},"some_id":{"id":17574,"roles":[{"emoji":":emoji:","role":2},{"emoji":":emoji2:","role":5}]},"1005279432518422608":{"id":1005279432518422608,"roles":[{"emoji":"<:unknown:1005259969962196993>","role":739501493639577653}]}}}
