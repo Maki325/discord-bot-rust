@@ -16,6 +16,7 @@ use serenity::model::gateway::Ready;
 use serenity::model::prelude::Message;
 use serenity::model::guild::{Emoji, Role};
 use serenity::model::channel::ReactionType::{Custom, Unicode};
+use serenity::model::channel::{Reaction, ReactionType};
 use serenity::model::id::EmojiId;
 use serenity::builder::{CreateActionRow, CreateSelectMenu, CreateSelectMenuOption};
 use tracing::{info};
@@ -37,22 +38,71 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     
+    async fn guild_role_create(&self, _ctx: Context, role: Role) {
+        let mut container = BOT_DATA.lock().unwrap();
+        let guild_id = role.guild_id.0.to_string();
+        let guild = match container.guilds.get_mut(&guild_id) {
+            Some(guild) => guild,
+            None => return,
+        };
+        guild.roles.push(role.clone());
+        container.save();
+    }
+
+    async fn guild_role_update(&self, _ctx: Context, _old_data_if_available: Option<Role>, role: Role) {
+        let mut container = BOT_DATA.lock().unwrap();
+        let guild_id = role.guild_id.0.to_string();
+        let guild = match container.guilds.get_mut(&guild_id) {
+            Some(guild) => guild,
+            None => return,
+        };
+        
+        for index in 0..guild.roles.len() {
+            if role.id.0 == guild.roles[index].id.0 {
+                guild.roles.remove(index);
+                break;
+            }
+        }
+        guild.roles.push(role);
+    }
+
+    async fn reaction_add(&self, ctx: Context, reaction: Reaction) {
+        let message_id = reaction.message_id.0.to_string();
+        let message_action = match BOT_DATA.lock().unwrap().messages.get(&message_id) {
+            Some(message_action) => message_action.clone(),
+            None => return,
+        };
+
+        let mut member = reaction.guild_id.expect("Couldn't get guild")
+            .member(&ctx, reaction.user_id.expect("Couldn't get user"))
+            .await.expect("Couldn't get member");
+        match message_action.get_role_from_emoji(reaction.emoji) {
+            Some(role_id) => member.add_role(&ctx, role_id).await.expect("Couldn't give the role to the user!"),
+            None => return,
+        };
+    }
+
+    async fn reaction_remove(&self, ctx: Context, reaction: Reaction) {
+        let message_id = reaction.message_id.0.to_string();
+        let message_action = match BOT_DATA.lock().unwrap().messages.get(&message_id) {
+            Some(message_action) => message_action.clone(),
+            None => return,
+        };
+
+        let mut member = reaction.guild_id.expect("Couldn't get guild")
+            .member(&ctx, reaction.user_id.expect("Couldn't get user"))
+            .await.expect("Couldn't get member");
+        match message_action.get_role_from_emoji(reaction.emoji) {
+            Some(role_id) => member.remove_role(&ctx, role_id).await.expect("Couldn't take the role from the user!"),
+            None => return,
+        };
+    }
+
     async fn ready(&self, ctx: Context, ready: Ready) {
-        // Log at the INFO level. This is a macro from the `tracing` crate.
         println!("{} is connected!", ready.user.name);
         info!("{} is connected!", ready.user.name);
 
-        {
-            let container = BOT_DATA.lock().unwrap();
-            for (k, v) in &container.messages {
-                println!("Key: {}", k);
-                println!("Value: {}", serde_json::to_string(&v).expect("Couldn't json the value!"));
-            }
-        }
-        
         for guild_info in ctx.http.get_guilds(None, None).await.expect("Get guilds error!") {
-            println!("Guild id: {}", guild_info.id);
-
             let partial_guild = ctx.http.get_guild(guild_info.id.0).await.expect("Get guild error!");
 
             let guild = Guild {
@@ -63,22 +113,11 @@ impl EventHandler for Handler {
             
             let mut container = BOT_DATA.lock().unwrap();
 
-            // TODO: Figure out how to use save_data, maybe as a reference
-            // Because self is NOT mutable sadly
             container.guilds.insert(guild.id.to_string(), Guild {
                 id: partial_guild.id.0,
                 emojis: partial_guild.emojis.values().cloned().collect::<Vec<Emoji>>(),
                 roles: partial_guild.roles.values().cloned().collect::<Vec<Role>>(),
             });
-        }
-
-        {
-            let container = BOT_DATA.lock().unwrap();
-
-            for (k, v) in &container.guilds {
-                println!("Key: {}", k);
-                println!("Value: {}", serde_json::to_string(&v).expect("Couldn't json the value!"));
-            }
         }
     }
 
@@ -101,7 +140,7 @@ impl Container {
     }
 
     fn save(&self) {
-        fs::write(&self.path.as_ref().expect("No path on container!"), serde_json::to_string(self).expect("Couldn't turn Container into json!"));
+        fs::write(&self.path.as_ref().expect("No path on container!"), serde_json::to_string(self).expect("Couldn't turn Container into json!")).expect("Couldn't save container to file!");
     }
 
     fn get_guild_role_by_name<S: AsRef<str>>(&self, guild_id: S, role_name: S) -> Option<&Role> {
@@ -120,6 +159,7 @@ struct Guild {
 }
 
 impl Guild {
+    
     fn get_role_by_name<S: AsRef<str>>(&self, role_name: S) -> Option<&Role> {
         let name = role_name.as_ref();
         for role in &self.roles {
@@ -133,6 +173,20 @@ impl Guild {
 struct MessageActions {
     id: u64,
     roles: Vec<EmojiRoleMapping>,
+}
+
+impl MessageActions {
+    fn get_role_from_emoji(&self, reaction: ReactionType) -> Option<u64> {
+        let emoji = match reaction {
+            Custom {name, id, animated: _} => format!("<:{}:{}>", name.expect("Name of Custom emoji expected!"), id.0),
+            Unicode(emoji) => emoji,
+            _ => return None,
+        };
+        for mapping in &self.roles {
+            if mapping.emoji.eq(&emoji) { return Some(mapping.role); }
+        }
+        return None;
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -158,10 +212,7 @@ async fn main() {
     // Login with a bot token from the environment
     let token = env::var("DISCORD_TOKEN").expect("token");
         
-    let intents = GatewayIntents::GUILD_MESSAGES
-        | GatewayIntents::DIRECT_MESSAGES
-        | GatewayIntents::MESSAGE_CONTENT
-        | GatewayIntents::GUILD_MESSAGE_REACTIONS;
+    let intents = GatewayIntents::all();
     let mut client = Client::builder(token, intents)
         .event_handler(Handler)
         .framework(framework)
@@ -178,7 +229,6 @@ async fn main() {
 #[command]
 async fn roles(ctx: &Context, msg: &Message) -> CommandResult {
     // ~selector roles (:some_emoji_idk: | role name) (:some_other_emoji: | other role name)
-    println!("Roles: {}", msg.content);
 
     let content = msg.content.replace("~selector roles", "").trim().to_string();
     if content.is_empty() {
@@ -195,28 +245,10 @@ async fn roles(ctx: &Context, msg: &Message) -> CommandResult {
 
         let string_item: String = item.to_string().replace("(", "").replace(")", "")
             .trim().to_string();
-        /*if item.starts_with("(") && item.ends_with(")") {
-            println!("Option 1! take: '{}'", item.len());
-            string_item = item.chars().skip(1).take(item.len() - 3).collect()
-        } else if item.ends_with(")") {
-            println!("Option 2!");
-            string_item = item.chars().take(item.len() - 1).collect()
-        } else if item.starts_with("(") {
-            println!("Option 3!");
-            string_item = item.chars().skip(1).collect();
-        } else {
-            println!("Option 4!");
-            string_item = item.chars().collect();
-        }
-        string_item = string_item.trim().to_string();*/
-        println!("Item: {}", item);
-        println!("String item: {}", string_item);
 
         let parts: Vec<&str> = string_item.split("|").collect();
         let (emoji, role) = (parts[0].trim(), parts[1].trim());
 
-        // msg.channel_id.send_message(ctx, "").await.expect("Expected the message!");
-        println!("Role: '{}'", role);
         let role_id: u64 = match container.get_guild_role_by_name(msg.guild_id.unwrap().0.to_string(), role.to_string()) {
             None => {
                 msg.reply(&ctx, "No role with that name!").await.unwrap();
@@ -229,21 +261,16 @@ async fn roles(ctx: &Context, msg: &Message) -> CommandResult {
             emoji: emoji.to_string(),
         });
 
-        // <@&739501493639577653>
         message_parts.push(format!("You can get <@&{}> if you react with {}", role_id, emoji));
     }
-
-    println!("message_actions: {}", serde_json::to_string(&message_actions).expect("Couldn't json the value!"));
 
     let message = msg.channel_id.say(&ctx, message_parts.join("\n")).await.unwrap();
     for mapping in &message_actions.roles {
         let emoji = &mapping.emoji;
-        println!("Emoji: {}", emoji);
         if emoji.starts_with("<") {
             let parts: &Vec<&str> = &mapping.emoji.split(":").collect();
             let name = parts[1].to_string();
             let id = parts[2].replace(">", "").to_string().parse::<u64>().unwrap();
-            println!("Emoji Id: {}", id);
             message.react(&ctx, Custom{animated: false, id: EmojiId(id), name: Some(name)}).await.expect("Error react!");
         } else {
             message.react(&ctx, Unicode(emoji.to_string())).await.unwrap();
@@ -269,8 +296,6 @@ async fn selector(ctx: &Context, msg: &Message) -> CommandResult {
     msg.reply(&ctx, r#"Usage:
         - selector roles (:some_emoji_idk: | role name) (:some_other_emoji: | other role name)
     "#).await?;
-    println!("selector {}", msg.content);
-
     Ok(())
 }
 
@@ -297,8 +322,7 @@ fn create_action_row() -> CreateActionRow {
 
 #[command]
 async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
-    // msg.reply(ctx, "Pong!").await?;
-    msg.delete(ctx).await;
+    msg.delete(ctx).await?;
 
     let m = msg.channel_id.send_message(&ctx, |m| {
         m.content("Pong! :O")
