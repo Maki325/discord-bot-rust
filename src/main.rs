@@ -1,7 +1,6 @@
 use std::env;
 use std::fs;
 use dotenv::dotenv;
-use std::time::Duration;
 use std::collections::HashMap;
 use std::sync::{Mutex};
 use lazy_static::lazy_static;
@@ -18,19 +17,15 @@ use serenity::model::guild::{Emoji, Role};
 use serenity::model::channel::ReactionType::{Custom, Unicode};
 use serenity::model::channel::{Reaction, ReactionType};
 use serenity::model::id::EmojiId;
-use serenity::builder::{CreateActionRow, CreateSelectMenu, CreateSelectMenuOption};
-use tracing::{info};
+use tracing::{info, error};
 // use tracing_subscriber::FmtSubscriber;
 
 lazy_static! {
-    static ref BOT_DATA: Mutex<Container> = Mutex::new(Container::new("save_data.json")/*Container {
-        guilds: HashMap::new(),
-        messages: HashMap::new(),
-    }*/);
+    static ref BOT_DATA: Mutex<Container> = Mutex::new(Container::new("save_data.json"));
 }
 
 #[group]
-#[commands(ping, selector)]
+#[commands(selector)]
 struct General;
 
 struct Handler;
@@ -76,10 +71,15 @@ impl EventHandler for Handler {
         let mut member = reaction.guild_id.expect("Couldn't get guild")
             .member(&ctx, reaction.user_id.expect("Couldn't get user"))
             .await.expect("Couldn't get member");
-        match message_action.get_role_from_emoji(reaction.emoji) {
-            Some(role_id) => member.add_role(&ctx, role_id).await.expect("Couldn't give the role to the user!"),
+        let role_id = match message_action.get_role_from_emoji(reaction.emoji) {
+            Some(role_id) => role_id,
             None => return,
         };
+
+        match member.add_role(&ctx, role_id).await {
+            Ok(()) => return,
+            Err(err) => error!("Couldn't give role '{}' to user '{}'. Reason: {}", role_id, member.user.name, err),
+        }
     }
 
     async fn reaction_remove(&self, ctx: Context, reaction: Reaction) {
@@ -204,11 +204,6 @@ async fn main() {
         .configure(|c| c.prefix("~")) // set the bot's prefix to "~"
         .group(&GENERAL_GROUP);
 
-    
-    /*let mut c = BOT_DATA.lock().unwrap();
-    c.guilds = container.guilds.clone();
-    c.messages = container.messages.clone();*/
-
     // Login with a bot token from the environment
     let token = env::var("DISCORD_TOKEN").expect("token");
         
@@ -223,7 +218,6 @@ async fn main() {
     if let Err(why) = client.start().await {
         println!("An error occurred while running the client: {:?}", why);
     }
-    println!("The bot started");
 }
 
 #[command]
@@ -298,71 +292,4 @@ async fn selector(ctx: &Context, msg: &Message) -> CommandResult {
     "#).await?;
     Ok(())
 }
-
-fn create_option(label: &str, value: &str) -> CreateSelectMenuOption {
-    let mut smo = CreateSelectMenuOption::default();
-    smo.label(label);
-    smo.value(value);
-    smo
-}
-
-fn create_select_menu() -> CreateSelectMenu {
-    let mut sm = CreateSelectMenu::default();
-    sm.custom_id("Custom select menu id!");
-    sm.placeholder("Placeholder!");
-    sm.options(|o| o.add_option(create_option("Label", "Value")));
-    sm
-}
-
-fn create_action_row() -> CreateActionRow {
-    let mut ar = CreateActionRow::default();
-    ar.add_select_menu(create_select_menu());
-    ar
-}
-
-#[command]
-async fn ping(ctx: &Context, msg: &Message) -> CommandResult {
-    msg.delete(ctx).await?;
-
-    let m = msg.channel_id.send_message(&ctx, |m| {
-        m.content("Pong! :O")
-            .components(|c| c.add_action_row(create_action_row()))
-    })
-    .await
-    .unwrap();
-
-    let result =
-        match m.await_component_interaction(&ctx).timeout(Duration::from_secs(60 * 3)).await {
-            Some(res) => res,
-            None => {
-                m.reply(&ctx, "Timed out!").await.unwrap();
-                return Ok(());
-            },
-        };
-
-    m.reply(&ctx, format!("You selected: {}", result.data.values.get(0).unwrap())).await.unwrap();
-
-    // TODO: Create a message with reactions: https://docs.rs/serenity/0.11.5/serenity/builder/struct.CreateMessage.html#method.reactions
-    // TODO: Add `reaction_add` and `reaction_remove` methods into the EventHandler: https://docs.rs/serenity/0.11.5/serenity/prelude/trait.EventHandler.html#method.reaction_add
-    // TODO: Map the message id of the created message so you can know which message we need to listen to!
-
-
-    /*msg.channel_id.send_message(&ctx, |m| {
-        m.content("Pong! :O")
-        .components(|c| c.add_action_row(|ar: CreateActionRow| { ar.add_select_menu(|sm: CreateSelectMenu| {
-            sm.custom_id("custom select menu")
-                .placeholder("Placeholder!")
-                .options(|os: CreateSelectMenuOptions| {
-                    os.add_option(|o| o.label("label").value("value"))
-                })
-
-        }).build() }))
-    }).await?;*/
-
-    // Delete the orig message or there will be dangling components
-    m.delete(&ctx).await.unwrap();
-
-    return Ok(())
-}
-
 
